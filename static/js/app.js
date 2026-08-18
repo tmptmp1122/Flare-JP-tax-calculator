@@ -15,6 +15,7 @@ import { fillSouHeikinho, fillIdouHeikinho } from './shared/nta-workbook.js';
 import { loadRates, makeRateTableBrowser } from './prices-browser.js';
 import * as store from './storage.js';
 
+const LAST_REPORT_KEY = 'lastReport';
 const NTA_ASSET_NAME = 'FLR（フレア）';
 const NTA_TEMPLATE_URL = {
   sou: 'assets/nta-templates/soheikinho.xlsx',
@@ -265,6 +266,8 @@ $('scan-btn').onclick = async () => {
 
     setProgress('集計しています…');
     state.report = buildReport({ wallets, rewards, gasTxs, rates, from, to, warnings });
+    store.cache.set(LAST_REPORT_KEY, state.report);
+    $('report-stale-notice').classList.add('hidden');
 
     renderReport(state.report);
     $('results').classList.remove('hidden');
@@ -611,6 +614,42 @@ const csvDownload = (kind) => () => {
 $('dl-csv-reward').onclick = csvDownload('rewards');
 $('dl-csv-gas').onclick = csvDownload('gas');
 
+/* ---------------- 前回のスキャン結果の復元 ---------------- */
+
+/**
+ * 前回スキャンした結果をブラウザに記憶しておき、次回アクセス時にも表示する。
+ * ブロックチェーンへの通信は発生しない（表示するだけ）ので、リロード直後でも一瞬で出る。
+ */
+function restoreLastReport() {
+  const saved = store.cache.get(LAST_REPORT_KEY);
+  if (!saved) return;
+
+  state.report = saved;
+  $('from-date').value = saved.period.from;
+  $('to-date').value = saved.period.to;
+
+  renderReport(saved);
+  $('results').classList.remove('hidden');
+
+  const generatedLabel = new Date(saved.generatedAt).toLocaleString('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  $('report-stale-notice').innerHTML =
+    `<strong>📅 前回のスキャン結果を表示しています</strong>（${esc(generatedLabel)} 時点）。` +
+    '最新の状態にするには「集計する」を押してください。';
+  $('report-stale-notice').classList.remove('hidden');
+
+  const yr = saved.period.to.slice(0, 4);
+  if ([...$('tax-year').options].some((o) => o.value === yr)) $('tax-year').value = yr;
+  recalcTax();
+  initNtaYearSelect(yr);
+  recalcNta();
+}
+
 /* ---------------- 初期化 ---------------- */
 
 initPeriod();
@@ -623,6 +662,9 @@ bindPersistedNumberInput('other-income', 'otherIncome', 0);
 bindPersistedNumberInput('other-deductions', 'otherDeductions', 0);
 bindPersistedNumberInput('nta-opening-qty', 'ntaOpeningQty', 0);
 bindPersistedNumberInput('nta-opening-value', 'ntaOpeningValue', 0);
+
+// 前回のスキャン結果があれば、再取得せずにそのまま表示する
+restoreLastReport();
 
 // 同梱データの生成日を表示しておく（古ければ更新の目安になる）
 fetch('data/prices.json')

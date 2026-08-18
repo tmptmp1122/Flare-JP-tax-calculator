@@ -241,6 +241,9 @@ $('scan-btn').onclick = async () => {
       }),
     });
     state.report = report;
+    setSetting('lastReport', report);
+    $('report-stale-notice').classList.add('hidden');
+
     renderReport(report);
     $('results').classList.remove('hidden');
     // 期間の年に合わせて税額試算の年を寄せる
@@ -551,6 +554,44 @@ $('dl-csv-gas').onclick = () => {
   if (state.report) location.href = `/api/export/csv?id=${state.report.id}&kind=gas`;
 };
 
+/* ---------------- 前回のスキャン結果の復元 ---------------- */
+
+/**
+ * 前回スキャンした結果をブラウザに記憶しておき、次回アクセス時にも表示する。
+ * サーバーへの再問い合わせは発生しない（表示するだけ）ので、ページを開いた直後でも一瞬で出る。
+ * ただし Excel ダウンロード等はサーバー側に結果が残っていないと失敗するため、
+ * その場合は再度「集計する」を押してもらう必要がある。
+ */
+function restoreLastReport() {
+  const saved = getSetting('lastReport', null);
+  if (!saved) return;
+
+  state.report = saved;
+  $('from-date').value = saved.period.from;
+  $('to-date').value = saved.period.to;
+
+  renderReport(saved);
+  $('results').classList.remove('hidden');
+
+  const generatedLabel = new Date(saved.generatedAt).toLocaleString('ja-JP', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  $('report-stale-notice').innerHTML =
+    `<strong>📅 前回のスキャン結果を表示しています</strong>（${esc(generatedLabel)} 時点）。` +
+    '最新の状態にするには「集計する」を押してください。';
+  $('report-stale-notice').classList.remove('hidden');
+
+  const yr = saved.period.to.slice(0, 4);
+  if ([...$('tax-year').options].some((o) => o.value === yr)) $('tax-year').value = yr;
+  recalcTax();
+  initNtaYearSelect(saved, yr);
+  recalcNta();
+}
+
 /* ---------------- init ---------------- */
 
 initPeriod();
@@ -561,3 +602,6 @@ bindPersistedNumberInput('other-income', 'otherIncome', 0);
 bindPersistedNumberInput('other-deductions', 'otherDeductions', 0);
 bindPersistedNumberInput('nta-opening-qty', 'ntaOpeningQty', 0);
 bindPersistedNumberInput('nta-opening-value', 'ntaOpeningValue', 0);
+
+// 前回のスキャン結果があれば、再取得せずにそのまま表示する
+restoreLastReport();
