@@ -1,0 +1,17 @@
+node_modules/
+
+# ローカルWebアプリ版のデータベース（ウォレット・キャッシュ）。
+# 個人のウォレットアドレスが入るので公開リポジトリには含めない。
+#
+# 先頭の / でリポジトリ直下だけを指す。これが無いと static/data/ にも一致してしまい、
+# 静的サイトに必要な prices.json がコミットされなくなる。
+/data/
+
+# 静的サイト版の同期物（npm run build:static で生成される）
+static/js/shared/
+static/style.css
+static/vendor/
+
+.DS_Store
+Thumbs.db
+*.log

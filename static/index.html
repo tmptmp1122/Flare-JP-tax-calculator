@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FLR獲得金額算出アプリ</title>
+<meta name="description" content="Flare(FLR)のデリゲート・ステーキング報酬とガス代を集計し、日本の確定申告に必要な情報とおおよその税額を算出するツール。すべてブラウザ内で動作します。">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔥</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <h1>FLR獲得金額算出アプリ</h1>
+    <p class="sub">Flare のデリゲート／ステーキング報酬とガス代を集計し、確定申告に必要な情報を算出します</p>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="notice-privacy">
+    <strong>🔒 すべてこのブラウザの中だけで動きます。</strong>
+    入力したアドレスがどこかのサーバーに送られることはありません。ブロックチェーンの公開データを直接読み取っています。
+    登録したウォレットはこのブラウザにのみ保存されます。
+  </div>
+
+  <!-- ============ ウォレット管理 ============ -->
+  <section class="card">
+    <h2>1. ウォレットの管理</h2>
+    <form id="wallet-form" class="row">
+      <input type="text" id="w-address" placeholder="0x で始まる Flare アドレス" autocomplete="off" spellcheck="false">
+      <input type="text" id="w-label" placeholder="ラベル（例: メイン）" maxlength="100">
+      <button type="submit" class="btn">保存</button>
+    </form>
+    <div id="wallet-list" class="wallet-list"></div>
+    <p class="hint">チェックを入れたウォレットが集計対象になります。複数選択すると合算されます。</p>
+  </section>
+
+  <!-- ============ 期間指定 ============ -->
+  <section class="card">
+    <h2>2. 期間の指定</h2>
+    <div class="row">
+      <label>開始日 <input type="date" id="from-date"></label>
+      <label>終了日 <input type="date" id="to-date"></label>
+      <div class="presets" id="presets"></div>
+    </div>
+    <div class="row">
+      <button id="scan-btn" class="btn primary">集計する</button>
+      <label class="check-inline">
+        <input type="checkbox" id="refresh-cache"> 全期間を取り直す
+      </label>
+    </div>
+    <p class="hint">
+      日付は日本時間(JST)基準です。初回は全履歴を走査するため 1〜3 分ほどかかりますが、
+      <strong>2回目以降は前回の続きから差分だけを取得する</strong>ので数秒で終わり、内容は常に最新になります。
+    </p>
+    <div id="progress" class="progress hidden"></div>
+  </section>
+
+  <!-- ============ 結果 ============ -->
+  <section id="results" class="hidden">
+
+    <div class="card">
+      <div class="card-head">
+        <h2>3. 集計結果</h2>
+        <div class="exports">
+          <button class="btn" id="dl-xlsx">Excel でダウンロード</button>
+          <button class="btn ghost" id="dl-csv-reward">報酬CSV</button>
+          <button class="btn ghost" id="dl-csv-gas">ガス代CSV</button>
+        </div>
+      </div>
+
+      <div id="warnings" class="warnings hidden"></div>
+      <div class="stats" id="stats"></div>
+
+      <h3>種別ごとの内訳</h3>
+      <div class="table-wrap"><table id="cat-table"></table></div>
+
+      <h3>年別の集計</h3>
+      <div class="table-wrap"><table id="year-table"></table></div>
+
+      <h3>月別の推移</h3>
+      <div class="table-wrap"><table id="month-table"></table></div>
+
+      <details class="detail-block">
+        <summary>報酬の明細を表示（<span id="reward-count">0</span> 件）</summary>
+        <div class="table-wrap scroll"><table id="reward-table"></table></div>
+      </details>
+
+      <details class="detail-block">
+        <summary>ガス代の明細を表示（<span id="gas-count">0</span> 件）</summary>
+        <div class="table-wrap scroll"><table id="gas-table"></table></div>
+      </details>
+    </div>
+
+    <!-- ============ 税金試算 ============ -->
+    <div class="card">
+      <h2>4. 税金の試算</h2>
+      <p class="hint">
+        日本では暗号資産の報酬は原則「雑所得（総合課税）」として、給与など他の所得と合算して累進課税されます。
+        他の所得を入力すると、FLR報酬によって<strong>いくら税金が増えるか</strong>を試算します。
+      </p>
+
+      <div class="tax-inputs">
+        <label>対象年
+          <select id="tax-year"></select>
+        </label>
+        <label>FLR以外の合計所得金額（円）
+          <input type="number" id="other-income" value="0" min="0" step="10000">
+          <small>給与の場合は「給与所得控除後の金額」（源泉徴収票の“給与所得控除後の金額”）</small>
+        </label>
+        <label>所得控除の合計（基礎控除を除く・円）
+          <input type="number" id="other-deductions" value="0" min="0" step="10000">
+          <small>社会保険料控除・生命保険料控除・扶養控除などの合計</small>
+        </label>
+        <label>ガス代を必要経費に算入する割合
+          <input type="range" id="gas-ratio" min="0" max="100" value="100" step="5">
+          <small><span id="gas-ratio-val">100</span>% を経費に算入（<span id="gas-ratio-jpy">0</span> 円）</small>
+        </label>
+      </div>
+
+      <div id="tax-result" class="tax-result"></div>
+
+      <p class="disclaimer">
+        ⚠ この試算は概算です。実際の納税額は他の所得・各種控除・お住まいの自治体によって変わります。
+        住民税は所得割（一律10%）のみの概算で、均等割は含みません。
+        確定申告の際は必ず税理士または税務署にご確認ください。
+      </p>
+    </div>
+
+  </section>
+</main>
+
+<footer class="wrap foot">
+  <p>
+    データ取得元: Flare Explorer (Blockscout) ／ 価格: 同梱データ・CoinGecko・frankfurter(ECB)。
+    <span id="price-info"></span>
+  </p>
+</footer>
+
+<script src="vendor/exceljs.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

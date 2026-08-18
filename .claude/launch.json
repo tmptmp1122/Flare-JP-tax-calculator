@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "flr-tax-app",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["server.js"],
+      "port": 3000
+    },
+    {
+      "name": "flr-tax-static",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["scripts/serve-static.js"],
+      "port": 4000
+    }
+  ]
+}

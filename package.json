@@ -1,0 +1,26 @@
+{
+  "name": "flr-tax-collector",
+  "version": "1.0.0",
+  "description": "Flare (FLR) のデリゲート/ステーキング報酬とガス代を収集し、日本の税金計算に必要な情報を算出するローカルWebアプリ",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "build:prices": "node scripts/build-price-data.cjs",
+    "verify": "node scripts/verify.js",
+    "serve:static": "node scripts/serve-static.js",
+    "build:static": "node scripts/build-static.js",
+    "build": "npm run build:prices && npm run build:static",
+    "verify:incremental": "node scripts/verify-incremental.js",
+    "verify:all": "npm run verify && npm run verify:incremental"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "ethers": "^6.17.0",
+    "exceljs": "^4.4.0",
+    "express": "^5.1.0"
+  }
+}

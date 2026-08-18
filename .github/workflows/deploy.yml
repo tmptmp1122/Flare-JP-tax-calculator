@@ -1,0 +1,76 @@
+# 静的サイト版を GitHub Pages に公開し、価格データを毎週自動更新する。
+#
+# 使い方:
+#   1. このリポジトリを GitHub に push する
+#   2. リポジトリの Settings → Pages → Source を「GitHub Actions」にする
+#   3. Settings → Actions → General → Workflow permissions を
+#      「Read and write permissions」にする（価格データの自動コミットに必要）
+#
+# 以降、main への push と毎週月曜の自動実行で公開内容が更新される。
+name: Deploy static site
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # 毎週月曜 06:00 JST（＝日曜 21:00 UTC）に価格データを更新する
+    - cron: '0 21 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 依存関係をインストール
+        run: npm ci || npm install
+
+      - name: 価格データを更新
+        run: npm run build:prices
+
+      - name: 静的アセットを配置
+        run: npm run build:static
+
+      # 価格データが更新されていればコミットして残す
+      # （次回の実行やローカルでの利用のため）
+      - name: 更新された価格データをコミット
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add static/data/prices.json
+          if git diff --staged --quiet; then
+            echo "価格データに変更なし"
+          else
+            git commit -m "chore: 価格データを更新"
+            git push
+          fi
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./static
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
