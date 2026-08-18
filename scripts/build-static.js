@@ -19,6 +19,12 @@ const jobs = [
   { from: p('shared'), to: p('static', 'js', 'shared'), kind: 'dir', filter: (f) => f.endsWith('.js') },
   { from: p('public', 'style.css'), to: p('static', 'style.css'), kind: 'file' },
   { from: p('node_modules', 'exceljs', 'dist', 'exceljs.min.js'), to: p('static', 'vendor', 'exceljs.min.js'), kind: 'file' },
+  {
+    from: p('assets', 'nta-templates'),
+    to: p('static', 'assets', 'nta-templates'),
+    kind: 'dir',
+    filter: (f) => f.endsWith('.xlsx'),
+  },
 ];
 
 let copied = 0;

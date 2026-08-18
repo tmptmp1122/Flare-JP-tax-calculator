@@ -123,6 +123,67 @@
       </p>
     </div>
 
+    <!-- ============ 国税庁 計算書 記入ガイド ============ -->
+    <div class="card">
+      <h2>5. 確定申告 記入ガイド（暗号資産の計算書）</h2>
+      <p class="hint">
+        暗号資産取引がある場合、確定申告では「暗号資産の計算書」を作成し添付・保存することが
+        求められています。このアプリが把握しているデータ（報酬の受取り・ガス代の支払い）を、
+        国税庁の公式様式にどう記入すればよいか自動計算し、記入済みのExcelをダウンロードできます。
+      </p>
+
+      <div class="notice-privacy" style="margin-top:0">
+        <strong>⚠️ 記入前に必ずお読みください</strong>
+        <ul style="margin:8px 0 0 20px; padding:0;">
+          <li>報酬の受取りは、受取り時点の時価で「購入等」として計上します。この時価そのものは
+            既に「４　税金の試算」の雑所得として別に計上済みで、ここで二重に所得計上されるわけではありません。</li>
+          <li>Flareネットワークではガス代を FLR 自体で支払うため、ガス代の支払いは暗号資産の
+            「売却等」（讓渡）として扱われます。取得時からの平均取得単価との差額が、追加の所得
+            （またはマイナス）として計上されます。</li>
+          <li>このアプリが把握しているのはオンチェーンの報酬とガス代だけです。取引所での売買・交換や、
+            年始時点で既に保有していた残高は含まれません。該当する場合は下の「年始残高」欄に
+            手入力してください（初めての年は 0 のままで構いません）。</li>
+          <li>これはあくまで記入補助であり、税務上の最終判断はご自身の責任で行ってください。
+            不明点は税理士または税務署にご確認ください。</li>
+        </ul>
+      </div>
+
+      <div class="tax-inputs">
+        <label>対象年
+          <select id="nta-year"></select>
+        </label>
+        <label>計算方法
+          <select id="nta-method">
+            <option value="sou">総平均法（既定・推奨）</option>
+            <option value="idou">移動平均法（参考値・近似計算）</option>
+          </select>
+          <small>「暗号資産の評価方法の届出書」を提出していなければ、総平均法が法定の方法になります。</small>
+        </label>
+        <label>年始残高 数量（FLR）
+          <input type="number" id="nta-opening-qty" value="0" min="0" step="0.00000001">
+          <small>前年から繰り越した保有数量。初めての年は 0 のままで構いません。</small>
+        </label>
+        <label>年始残高 金額（円）
+          <input type="number" id="nta-opening-value" value="0" min="0" step="1">
+          <small>前年末時点の評価額（前年の計算書「年末残高」欄の金額）。</small>
+        </label>
+      </div>
+
+      <div id="nta-approx-note" class="warnings hidden"></div>
+
+      <div class="table-wrap"><table id="nta-preview"></table></div>
+      <div class="stats" id="nta-summary" style="margin-top:16px"></div>
+
+      <div class="row" style="margin-top:16px">
+        <button class="btn" id="nta-download">国税庁様式をダウンロード（記入済み）</button>
+      </div>
+      <p class="hint">
+        ダウンロードしたExcelは、開いた時点で数式が自動的に再計算され、様式内の
+        「４　暗号資産の売却原価の計算」「５（３）　暗号資産の所得金額の計算」欄に数値が反映されます。
+        「氏名」欄は空欄になっているため、ご自身で入力してください。
+      </p>
+    </div>
+
   </section>
 </main>
 

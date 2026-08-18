@@ -11,7 +11,11 @@ node_modules/
 static/js/shared/
 static/style.css
 static/vendor/
+static/assets/
 
 .DS_Store
 Thumbs.db
 *.log
+
+# Claude Code のセッション管理ファイル（launch.json は除く）
+.claude/scheduled_tasks.lock

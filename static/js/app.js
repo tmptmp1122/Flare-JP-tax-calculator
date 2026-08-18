@@ -10,8 +10,16 @@ import { isValidAddress, normalizeAddress } from './shared/decode.js';
 import { buildReport } from './shared/report.js';
 import { estimateTax } from './shared/tax.js';
 import { buildWorkbook, rewardsCsv, gasCsv } from './shared/workbook.js';
+import { computeSouHeikinho, computeIdouHeikinho, listAvailableYears } from './shared/nta-form.js';
+import { fillSouHeikinho, fillIdouHeikinho } from './shared/nta-workbook.js';
 import { loadRates, makeRateTableBrowser } from './prices-browser.js';
 import * as store from './storage.js';
+
+const NTA_ASSET_NAME = 'FLR（フレア）';
+const NTA_TEMPLATE_URL = {
+  sou: 'assets/nta-templates/soheikinho.xlsx',
+  idou: 'assets/nta-templates/idouheikinho.xlsx',
+};
 
 const $ = (id) => document.getElementById(id);
 const EXPLORER = 'https://flare-explorer.flare.network';
@@ -201,6 +209,8 @@ $('scan-btn').onclick = async () => {
     const yr = to.slice(0, 4);
     if ([...$('tax-year').options].some((o) => o.value === yr)) $('tax-year').value = yr;
     recalcTax();
+    initNtaYearSelect(yr);
+    recalcNta();
     $('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (err) {
     console.error(err);
@@ -365,6 +375,141 @@ let taxTimer;
     taxTimer = setTimeout(recalcTax, 200);
   });
 });
+
+/* ---------------- 確定申告 記入ガイド（暗号資産の計算書） ---------------- */
+
+function initNtaYearSelect(preferYear) {
+  const years = listAvailableYears(state.report);
+  const sel = $('nta-year');
+  sel.innerHTML = years.map((y) => `<option value="${y}">${y} 年</option>`).join('');
+  if (years.includes(preferYear)) sel.value = preferYear;
+  else if (years.length) sel.value = years[years.length - 1];
+}
+
+function ntaComputed() {
+  const year = $('nta-year').value;
+  const opening = { qty: +$('nta-opening-qty').value || 0, value: +$('nta-opening-value').value || 0 };
+  const method = $('nta-method').value;
+  return method === 'idou' ? computeIdouHeikinho(state.report, year, opening) : computeSouHeikinho(state.report, year, opening);
+}
+
+function renderNtaPreview(c) {
+  const note = $('nta-approx-note');
+  if (!c.exact) {
+    note.innerHTML =
+      '<strong>参考値（近似計算）</strong><p>移動平均法は本来、取引のたびに逐次平均を再計算する方式です。' +
+      '数百件の小さな報酬を1件ずつ記載するのは非現実的なため、ここでは月単位に集計して近似しています。' +
+      'ダウンロードしたExcel自体は国税庁の数式でその場から正確に再計算されますが、月次集計を入力データとしている点は変わりません。' +
+      '特に届出をしていない場合は、下の総平均法（既定・厳密に一致）を使うことをお勧めします。</p>';
+    note.classList.remove('hidden');
+  } else {
+    note.classList.add('hidden');
+  }
+
+  if (c.method === 'sou') {
+    buildTable(
+      $('nta-preview'),
+      [
+        { key: 'month', label: '月', render: (x) => x.month + '月' },
+        { key: 'description', label: '摘要', render: (x) => esc(x.description) },
+        { key: 'purchaseQty', label: '購入等 数量', num: true, render: (x) => (x.purchaseQty ? flr(x.purchaseQty) : '') },
+        { key: 'purchaseValue', label: '購入等 金額', num: true, render: (x) => (x.purchaseValue ? jpy(x.purchaseValue) : '') },
+        { key: 'saleQty', label: '売却等 数量', num: true, render: (x) => (x.saleQty ? flr(x.saleQty) : '') },
+        { key: 'saleValue', label: '売却等 金額', num: true, render: (x) => (x.saleValue ? jpy(x.saleValue) : '') },
+      ],
+      c.rows
+    );
+    $('nta-summary').innerHTML = `
+      <div class="stat"><div class="k">年始残高</div><div class="v">${flr(c.openingQty)}</div><div class="s">${jpy(c.openingValue)}</div></div>
+      <div class="stat"><div class="k">購入等 合計</div><div class="v">${flr(c.purchaseQty)}</div><div class="s">${jpy(c.purchaseValue)}</div></div>
+      <div class="stat"><div class="k">売却等 合計</div><div class="v">${flr(c.saleQty)}</div><div class="s">${jpy(c.saleValue)}</div></div>
+      <div class="stat"><div class="k">総平均単価</div><div class="v">${c.avgUnitPrice.toFixed(6)} 円/FLR</div></div>
+      <div class="stat"><div class="k">売却原価（必要経費）</div><div class="v">${jpy(c.costTotal)}</div></div>
+      <div class="stat"><div class="k">年末残高・翌年繰越</div><div class="v">${flr(c.endingQty)}</div><div class="s">${jpy(c.endingValue)}</div></div>
+      <div class="stat accent"><div class="k">所得金額（収入−必要経費）</div><div class="v">${jpy(c.income)}</div></div>`;
+  } else {
+    buildTable(
+      $('nta-preview'),
+      [
+        { key: 'month', label: '月', render: (x) => x.month + '月' },
+        { key: 'type', label: '種別', render: (x) => (x.type === 'purchase' ? '購入等' : '売却等') },
+        { key: 'description', label: '摘要', render: (x) => esc(x.description) },
+        { key: 'qty', label: '数量', num: true, render: (x) => flr(x.qty) },
+        { key: 'value', label: '金額', num: true, render: (x) => jpy(x.value) },
+        { key: 'balanceQty', label: '残高 数量', num: true, render: (x) => flr(x.balanceQty) },
+        { key: 'balanceValue', label: '残高 金額', num: true, render: (x) => jpy(x.balanceValue) },
+        { key: 'unitPrice', label: '単価', num: true, render: (x) => x.unitPrice.toFixed(6) },
+      ],
+      c.rows
+    );
+    $('nta-summary').innerHTML = `
+      <div class="stat"><div class="k">年始残高</div><div class="v">${flr(c.openingQty)}</div><div class="s">${jpy(c.openingValue)}</div></div>
+      <div class="stat"><div class="k">購入等 合計金額</div><div class="v">${jpy(c.totalPurchaseValue)}</div></div>
+      <div class="stat"><div class="k">売却等 合計金額</div><div class="v">${jpy(c.totalSaleValue)}</div></div>
+      <div class="stat"><div class="k">売却原価（必要経費）</div><div class="v">${jpy(c.totalCost)}</div></div>
+      <div class="stat"><div class="k">年末残高・翌年繰越</div><div class="v">${flr(c.endingQty)}</div><div class="s">${jpy(c.endingValue)}</div></div>
+      <div class="stat accent"><div class="k">所得金額（参考値）</div><div class="v">${jpy(c.income)}</div></div>`;
+  }
+}
+
+function recalcNta() {
+  if (!state.report) return;
+  const years = listAvailableYears(state.report);
+  if (years.length === 0) {
+    $('nta-preview').innerHTML = '<div class="empty">対象期間に報酬・ガス代のデータがありません。</div>';
+    $('nta-summary').innerHTML = '';
+    return;
+  }
+  try {
+    renderNtaPreview(ntaComputed());
+  } catch (e) {
+    $('nta-preview').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    $('nta-summary').innerHTML = '';
+  }
+}
+
+let ntaTimer;
+['nta-year', 'nta-method', 'nta-opening-qty', 'nta-opening-value'].forEach((id) => {
+  $(id).addEventListener('input', () => {
+    clearTimeout(ntaTimer);
+    ntaTimer = setTimeout(recalcNta, 200);
+  });
+});
+
+$('nta-download').onclick = async () => {
+  if (!state.report) return;
+  const btn = $('nta-download');
+  btn.disabled = true;
+  const label = btn.textContent;
+  btn.textContent = '作成中…';
+  try {
+    const method = $('nta-method').value;
+    const year = $('nta-year').value;
+    const computed = ntaComputed();
+
+    const templateBuf = await fetch(NTA_TEMPLATE_URL[method]).then((r) => {
+      if (!r.ok) throw new Error(`様式の読み込みに失敗しました (HTTP ${r.status})`);
+      return r.arrayBuffer();
+    });
+
+    const wb =
+      method === 'idou'
+        ? await fillIdouHeikinho(window.ExcelJS, templateBuf, { year, assetName: NTA_ASSET_NAME, computed })
+        : await fillSouHeikinho(window.ExcelJS, templateBuf, { year, assetName: NTA_ASSET_NAME, computed });
+
+    const buf = await wb.xlsx.writeBuffer();
+    download(
+      new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+      `暗号資産の計算書_${method === 'idou' ? '移動平均法' : '総平均法'}_${year}年分.xlsx`
+    );
+  } catch (e) {
+    console.error(e);
+    alert('様式の作成に失敗しました: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = label;
+  }
+};
 
 /* ---------------- エクスポート ---------------- */
 

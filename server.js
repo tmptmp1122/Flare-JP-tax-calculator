@@ -7,6 +7,7 @@
 
 import express from 'express';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import ExcelJS from 'exceljs';
 
@@ -17,8 +18,15 @@ import { isValidAddress, normalizeAddress } from './shared/decode.js';
 import { buildReport, makeRateTable } from './shared/report.js';
 import { estimateTax } from './shared/tax.js';
 import { buildWorkbook, rewardsCsv, gasCsv } from './shared/workbook.js';
+import { computeSouHeikinho, computeIdouHeikinho, listAvailableYears } from './shared/nta-form.js';
+import { fillSouHeikinho, fillIdouHeikinho } from './shared/nta-workbook.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const NTA_ASSET_NAME = 'FLR（フレア）';
+const NTA_TEMPLATES = {
+  sou: path.join(__dirname, 'assets', 'nta-templates', 'soheikinho.xlsx'),
+  idou: path.join(__dirname, 'assets', 'nta-templates', 'idouheikinho.xlsx'),
+};
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -170,6 +178,61 @@ app.get('/api/export/csv', asHandler((req, res) => {
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   filenameHeader(res, `FLR${isGas ? 'ガス代明細' : '報酬明細'}_${report.period.from}_${report.period.to}.csv`);
   res.send(isGas ? gasCsv(report) : rewardsCsv(report));
+}));
+
+/* ---------------- 確定申告 記入ガイド（暗号資産の計算書） ---------------- */
+
+function ntaOpening(req) {
+  return {
+    qty: Number(req.query.openingQty) || 0,
+    value: Number(req.query.openingValue) || 0,
+  };
+}
+
+app.get('/api/nta-preview', asHandler((req, res) => {
+  const report = getReport(req, res);
+  if (!report) return;
+
+  const year = req.query.year;
+  if (!/^\d{4}$/.test(year || '')) return res.status(400).json({ error: '年を指定してください' });
+
+  const opening = ntaOpening(req);
+  const computed =
+    req.query.method === 'idou'
+      ? computeIdouHeikinho(report, year, opening)
+      : computeSouHeikinho(report, year, opening);
+
+  res.json({ computed, availableYears: listAvailableYears(report) });
+}));
+
+app.get('/api/export/nta', asHandler(async (req, res) => {
+  const report = getReport(req, res);
+  if (!report) return;
+
+  const year = req.query.year;
+  if (!/^\d{4}$/.test(year || '')) return res.status(400).json({ error: '年を指定してください' });
+
+  const method = req.query.method === 'idou' ? 'idou' : 'sou';
+  const opening = ntaOpening(req);
+  const templateBuf = fs.readFileSync(NTA_TEMPLATES[method]);
+
+  const wb =
+    method === 'idou'
+      ? await fillIdouHeikinho(ExcelJS, templateBuf, {
+          year,
+          assetName: NTA_ASSET_NAME,
+          computed: computeIdouHeikinho(report, year, opening),
+        })
+      : await fillSouHeikinho(ExcelJS, templateBuf, {
+          year,
+          assetName: NTA_ASSET_NAME,
+          computed: computeSouHeikinho(report, year, opening),
+        });
+
+  const buf = Buffer.from(await wb.xlsx.writeBuffer());
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  filenameHeader(res, `暗号資産の計算書_${method === 'idou' ? '移動平均法' : '総平均法'}_${year}年分.xlsx`);
+  res.send(buf);
 }));
 
 /* ---------------- 起動 ---------------- */
