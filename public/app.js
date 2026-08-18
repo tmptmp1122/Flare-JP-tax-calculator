@@ -27,6 +27,88 @@ async function api(url, opts) {
   return json;
 }
 
+/* ---------------- 入力欄の記憶（ブラウザのlocalStorage） ---------------- */
+
+const SETTINGS_PREFIX = 'flrtax.settings.';
+
+function getSetting(key, fallback) {
+  try {
+    const raw = localStorage.getItem(SETTINGS_PREFIX + key);
+    return raw === null ? fallback : JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function setSetting(key, value) {
+  try {
+    localStorage.setItem(SETTINGS_PREFIX + key, JSON.stringify(value));
+  } catch {
+    /* 保存できなくても動作には影響しない */
+  }
+}
+
+/* ---------------- 桁区切り入力欄 ---------------- */
+
+/**
+ * カンマ区切り表示の数値入力を扱う。
+ * 入力のたびに桁区切りへ整形し直し、カーソル位置もできるだけ保つ。
+ * @returns {() => void} 整形だけを行う関数（初期値をセットした直後などに呼ぶ）
+ */
+function attachThousandsFormatting(el) {
+  el.setAttribute('inputmode', 'decimal');
+  el.setAttribute('autocomplete', 'off');
+
+  const reformat = () => {
+    const start = el.selectionStart ?? el.value.length;
+    const digitsBeforeCursor = el.value.slice(0, start).replace(/[^0-9]/g, '').length;
+
+    let raw = el.value.replace(/[^0-9.]/g, '');
+    const firstDot = raw.indexOf('.');
+    if (firstDot !== -1) raw = raw.slice(0, firstDot + 1) + raw.slice(firstDot + 1).replace(/\./g, '');
+
+    const [intRaw, decRaw] = raw.split('.');
+    const intDigits = (intRaw || '').replace(/^0+(?=\d)/, '');
+    const formattedInt = intDigits ? Number(intDigits).toLocaleString('ja-JP') : '';
+    const next = formattedInt + (decRaw !== undefined ? '.' + decRaw : '');
+    el.value = next;
+
+    if (digitsBeforeCursor === 0) {
+      el.setSelectionRange(0, 0);
+      return;
+    }
+    let count = 0;
+    for (let i = 0; i < next.length; i++) {
+      if (/[0-9]/.test(next[i])) count++;
+      if (count === digitsBeforeCursor) {
+        el.setSelectionRange(i + 1, i + 1);
+        return;
+      }
+    }
+    el.setSelectionRange(next.length, next.length);
+  };
+
+  el.addEventListener('input', reformat);
+  return reformat;
+}
+
+/** カンマ区切り表示の欄から数値を取り出す */
+function parseFormattedNumber(el) {
+  const n = Number(String(el.value).replace(/,/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** 桁区切り整形をつけたうえで、ブラウザに値を記憶させる */
+function bindPersistedNumberInput(id, storageKey, defaultValue) {
+  const el = $(id);
+  const reformat = attachThousandsFormatting(el);
+  el.value = String(getSetting(storageKey, defaultValue));
+  reformat();
+  el.addEventListener('input', () => {
+    setSetting(storageKey, parseFormattedNumber(el));
+  });
+}
+
 function buildTable(el, columns, rows, footer) {
   const head = `<thead><tr>${columns.map((c) => `<th class="${c.num ? 'num' : ''}">${esc(c.label)}</th>`).join('')}</tr></thead>`;
   const body = rows.length
@@ -300,8 +382,8 @@ async function recalcTax() {
     body: JSON.stringify({
       rewardIncomeJpy: state.report.summary.totalRewardJpy,
       gasExpenseJpy: gasExpense,
-      otherIncomeJpy: +$('other-income').value || 0,
-      otherDeductionsJpy: +$('other-deductions').value || 0,
+      otherIncomeJpy: parseFormattedNumber($('other-income')),
+      otherDeductionsJpy: parseFormattedNumber($('other-deductions')),
       year: +$('tax-year').value,
     }),
   });
@@ -424,8 +506,8 @@ async function recalcNta() {
     id: state.report.id,
     method: $('nta-method').value,
     year: $('nta-year').value,
-    openingQty: $('nta-opening-qty').value || 0,
-    openingValue: $('nta-opening-value').value || 0,
+    openingQty: parseFormattedNumber($('nta-opening-qty')),
+    openingValue: parseFormattedNumber($('nta-opening-value')),
   });
   try {
     const { computed } = await api('/api/nta-preview?' + params);
@@ -449,8 +531,8 @@ $('nta-download').onclick = () => {
     id: state.report.id,
     method: $('nta-method').value,
     year: $('nta-year').value,
-    openingQty: $('nta-opening-qty').value || 0,
-    openingValue: $('nta-opening-value').value || 0,
+    openingQty: parseFormattedNumber($('nta-opening-qty')),
+    openingValue: parseFormattedNumber($('nta-opening-value')),
   });
   location.href = `/api/export/nta?${params}`;
 };
@@ -473,3 +555,9 @@ $('dl-csv-gas').onclick = () => {
 
 initPeriod();
 loadWallets().catch((e) => console.error(e));
+
+// 入力値をブラウザに記憶させ、桁区切り表示にする
+bindPersistedNumberInput('other-income', 'otherIncome', 0);
+bindPersistedNumberInput('other-deductions', 'otherDeductions', 0);
+bindPersistedNumberInput('nta-opening-qty', 'ntaOpeningQty', 0);
+bindPersistedNumberInput('nta-opening-value', 'ntaOpeningValue', 0);

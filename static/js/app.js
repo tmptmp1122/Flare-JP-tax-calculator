@@ -47,6 +47,69 @@ function buildTable(el, columns, rows, footer) {
   el.innerHTML = head + body + foot;
 }
 
+/* ---------------- 桁区切り入力欄 ---------------- */
+
+/**
+ * カンマ区切り表示の数値入力を扱う。
+ * 入力のたびに桁区切りへ整形し直し、カーソル位置もできるだけ保つ。
+ * @returns {() => void} 整形だけを行う関数（初期値をセットした直後などに呼ぶ）
+ */
+function attachThousandsFormatting(el) {
+  el.setAttribute('inputmode', 'decimal');
+  el.setAttribute('autocomplete', 'off');
+
+  const reformat = () => {
+    const start = el.selectionStart ?? el.value.length;
+    // カーソルより前にある「数字」の個数を数えておき、整形後も同じ位置に戻す
+    const digitsBeforeCursor = el.value.slice(0, start).replace(/[^0-9]/g, '').length;
+
+    let raw = el.value.replace(/[^0-9.]/g, '');
+    const firstDot = raw.indexOf('.');
+    if (firstDot !== -1) raw = raw.slice(0, firstDot + 1) + raw.slice(firstDot + 1).replace(/\./g, '');
+
+    const [intRaw, decRaw] = raw.split('.');
+    const intDigits = (intRaw || '').replace(/^0+(?=\d)/, '');
+    const formattedInt = intDigits ? Number(intDigits).toLocaleString('ja-JP') : '';
+    const next = formattedInt + (decRaw !== undefined ? '.' + decRaw : '');
+    el.value = next;
+
+    if (digitsBeforeCursor === 0) {
+      el.setSelectionRange(0, 0);
+      return;
+    }
+    let count = 0;
+    for (let i = 0; i < next.length; i++) {
+      if (/[0-9]/.test(next[i])) count++;
+      if (count === digitsBeforeCursor) {
+        el.setSelectionRange(i + 1, i + 1);
+        return;
+      }
+    }
+    el.setSelectionRange(next.length, next.length);
+  };
+
+  el.addEventListener('input', reformat);
+  return reformat;
+}
+
+/** カンマ区切り表示の欄から数値を取り出す */
+function parseFormattedNumber(el) {
+  const n = Number(String(el.value).replace(/,/g, ''));
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** 桁区切り整形をつけたうえで、ブラウザに値を記憶させる */
+function bindPersistedNumberInput(id, storageKey, defaultValue) {
+  const el = $(id);
+  const reformat = attachThousandsFormatting(el);
+  const saved = store.getSetting(storageKey, defaultValue);
+  el.value = String(saved);
+  reformat();
+  el.addEventListener('input', () => {
+    store.setSetting(storageKey, parseFormattedNumber(el));
+  });
+}
+
 function setProgress(msg) {
   const el = $('progress');
   if (msg == null) {
@@ -337,8 +400,8 @@ function recalcTax() {
   const t = estimateTax({
     rewardIncomeJpy: state.report.summary.totalRewardJpy,
     gasExpenseJpy: gasExpense,
-    otherIncomeJpy: +$('other-income').value || 0,
-    otherDeductionsJpy: +$('other-deductions').value || 0,
+    otherIncomeJpy: parseFormattedNumber($('other-income')),
+    otherDeductionsJpy: parseFormattedNumber($('other-deductions')),
     year: +$('tax-year').value,
   });
   state.tax = t;
@@ -388,7 +451,7 @@ function initNtaYearSelect(preferYear) {
 
 function ntaComputed() {
   const year = $('nta-year').value;
-  const opening = { qty: +$('nta-opening-qty').value || 0, value: +$('nta-opening-value').value || 0 };
+  const opening = { qty: parseFormattedNumber($('nta-opening-qty')), value: parseFormattedNumber($('nta-opening-value')) };
   const method = $('nta-method').value;
   return method === 'idou' ? computeIdouHeikinho(state.report, year, opening) : computeSouHeikinho(state.report, year, opening);
 }
@@ -554,6 +617,12 @@ initPeriod();
 state.wallets = store.listWallets();
 state.wallets.forEach((w) => state.selected.add(w.address));
 renderWallets();
+
+// 入力値をブラウザに記憶させ、桁区切り表示にする
+bindPersistedNumberInput('other-income', 'otherIncome', 0);
+bindPersistedNumberInput('other-deductions', 'otherDeductions', 0);
+bindPersistedNumberInput('nta-opening-qty', 'ntaOpeningQty', 0);
+bindPersistedNumberInput('nta-opening-value', 'ntaOpeningValue', 0);
 
 // 同梱データの生成日を表示しておく（古ければ更新の目安になる）
 fetch('data/prices.json')

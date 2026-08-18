@@ -107,11 +107,11 @@
           <select id="tax-year"></select>
         </label>
         <label>FLR以外の合計所得金額（円）
-          <input type="number" id="other-income" value="0" min="0" step="10000">
+          <input type="text" id="other-income" value="0">
           <small>給与の場合は「給与所得控除後の金額」（源泉徴収票の“給与所得控除後の金額”）</small>
         </label>
         <label>所得控除の合計（基礎控除を除く・円）
-          <input type="number" id="other-deductions" value="0" min="0" step="10000">
+          <input type="text" id="other-deductions" value="0">
           <small>社会保険料控除・生命保険料控除・扶養控除などの合計</small>
         </label>
         <label>ガス代を必要経費に算入する割合
@@ -166,11 +166,11 @@
           <small>「暗号資産の評価方法の届出書」を提出していなければ、総平均法が法定の方法になります。</small>
         </label>
         <label>年始残高 数量（FLR）
-          <input type="number" id="nta-opening-qty" value="0" min="0" step="0.00000001">
+          <input type="text" id="nta-opening-qty" value="0">
           <small>前年から繰り越した保有数量。初めての年は 0 のままで構いません。</small>
         </label>
         <label>年始残高 金額（円）
-          <input type="number" id="nta-opening-value" value="0" min="0" step="1">
+          <input type="text" id="nta-opening-value" value="0">
           <small>前年末時点の評価額（前年の計算書「年末残高」欄の金額）。</small>
         </label>
       </div>

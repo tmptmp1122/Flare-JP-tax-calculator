@@ -8,6 +8,7 @@
 
 const WALLET_KEY = 'flrtax.wallets.v1';
 const CACHE_PREFIX = 'flrtax.cache.';
+const SETTINGS_PREFIX = 'flrtax.settings.';
 
 /* ---------------- ウォレット ---------------- */
 
@@ -104,4 +105,24 @@ export function clearCache() {
     if (k?.startsWith(CACHE_PREFIX)) keys.push(k);
   }
   for (const k of keys) localStorage.removeItem(k);
+}
+
+/* ---------------- 入力欄の記憶 ---------------- */
+
+/** 他の所得・年始残高など、入力欄の値をブラウザに覚えさせておく */
+export function getSetting(key, fallback = null) {
+  try {
+    const raw = localStorage.getItem(SETTINGS_PREFIX + key);
+    return raw === null ? fallback : JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+export function setSetting(key, value) {
+  try {
+    localStorage.setItem(SETTINGS_PREFIX + key, JSON.stringify(value));
+  } catch {
+    /* 保存できなくても動作には影響しない */
+  }
 }

@@ -35,6 +35,42 @@ const CACHE_VERSION = 2;
  */
 const REORG_MARGIN = 200_000;
 
+/**
+ * Explorer への同時リクエスト数を、全コントラクトを通じて共有の上限に抑える。
+ *
+ * collectRewards は5種類のコントラクトを並列に問い合わせる。分割取得（フォールバック）が
+ * 複数のコントラクトで同時に発生すると、それぞれが自分だけの並列数のつもりでリクエストを
+ * 出しても、ブラウザ全体では合計が一気に跳ね上がり、かえって Explorer 側のレスポンスが
+ * 悪化して全体が遅くなる。ここで全体の同時実行数を一本化して抑える。
+ */
+const GLOBAL_CONCURRENCY = 5;
+let activeRequests = 0;
+const waitQueue = [];
+
+function withGlobalSlot(fn) {
+  return new Promise((resolve, reject) => {
+    const run = () => {
+      activeRequests++;
+      fn().then(
+        (v) => {
+          activeRequests--;
+          const next = waitQueue.shift();
+          if (next) next();
+          resolve(v);
+        },
+        (e) => {
+          activeRequests--;
+          const next = waitQueue.shift();
+          if (next) next();
+          reject(e);
+        }
+      );
+    };
+    if (activeRequests < GLOBAL_CONCURRENCY) run();
+    else waitQueue.push(run);
+  });
+}
+
 /** 形式が合わないキャッシュは無かったことにする */
 function readCache(raw) {
   if (!raw || typeof raw !== 'object') return null;
@@ -213,33 +249,34 @@ async function fetchRewardLogs(wallet, def, contractAddress, latestBlock, fromBl
   let rawLogs;
   if (fromBlock > 0) {
     // 差分取得。範囲が狭いので分割は不要（実測で1秒以下）
-    rawLogs = await queryRange(fromBlock, 'latest', { retries: 4, timeoutMs: 60000 });
+    rawLogs = await queryRange(fromBlock, 'latest', { retries: 3, timeoutMs: 20000 });
   } else {
     try {
       // 初回は全期間を一括で試す。重いコントラクトは 504 になるので、
-      // リトライせず即座に分割方式へ切り替える。
-      rawLogs = await queryRange(0, 'latest', { retries: 1, timeoutMs: 35000 });
+      // 長く待たずに即座に分割方式へ切り替える。
+      rawLogs = await queryRange(0, 'latest', { retries: 1, timeoutMs: 20000 });
     } catch (e) {
       if (!latestBlock) throw e;
 
       // デプロイ前のブロックは必ず空振りなので走査しない
       const startBlock = await getDeployBlock(contractAddress);
 
-      const CHUNK = 4_000_000;
+      // チャンクは小さめにする。実測では 4M ブロックは応答が遅くなりやすい一方、
+      // 1〜2M ブロックなら安定して1秒未満で返る。1回あたりの失敗リスクを下げるほうが、
+      // リクエスト数が増える分の不利を上回る。
+      const CHUNK = 1_500_000;
       const ranges = [];
       for (let f = startBlock; f <= latestBlock; f += CHUNK) {
         ranges.push([f, Math.min(f + CHUNK - 1, latestBlock)]);
       }
 
-      rawLogs = [];
-      // 実測では並列度を上げるとかえって Explorer 側が詰まり、504 が増えて
-      // 全体として遅くなった。4 が最も安定して速い。
-      const CONCURRENCY = 4;
-      for (let i = 0; i < ranges.length; i += CONCURRENCY) {
-        const batch = ranges.slice(i, i + CONCURRENCY);
-        const parts = await Promise.all(batch.map(([f, t]) => queryRange(f, t, { retries: 4, timeoutMs: 60000 })));
-        for (const p of parts) rawLogs.push(...p);
-      }
+      // 同時実行数はコントラクトごとではなく全体で共有する（withGlobalSlot）。
+      // 5種類のコントラクトが同時に分割取得へ入っても、ブラウザからの
+      // 同時リクエスト数が跳ね上がらないようにするため。
+      const parts = await Promise.all(
+        ranges.map(([f, t]) => withGlobalSlot(() => queryRange(f, t, { retries: 3, timeoutMs: 20000 })))
+      );
+      rawLogs = parts.flat();
     }
   }
 
